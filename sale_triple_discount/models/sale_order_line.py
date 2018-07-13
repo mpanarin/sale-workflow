@@ -5,14 +5,46 @@
 # Copyright 2018 Simone Rubino - Agile Business Group
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
-from odoo import api, fields, models
+from odoo import _, api, fields, models
+from odoo.exceptions import ValidationError
 import odoo.addons.decimal_precision as dp
 
 
 class SaleOrderLine(models.Model):
     _inherit = "sale.order.line"
 
-    @api.depends('discount2', 'discount3')
+    def _get_final_discount(self):
+        self.ensure_one()
+        if self.discounting_type == "additive":
+            return self._additive_discount()
+        elif self.discounting_type == "multiplicative":
+            return self._multiplicative_discount()
+        else:
+            raise ValidationError(_(
+                "Sale order line %s has unknown discounting type %s"
+            ) % (self.name, self.discounting_type))
+
+    def _additive_discount(self):
+        self.ensure_one()
+        discounts = [getattr(self, x) or 0.0 for x in self._discount_fields()]
+        final_discount = 1 - sum(discounts) / 100
+        if final_discount <= 0:
+            return 0
+        return final_discount
+
+    def _multiplicative_discount(self):
+        self.ensure_one()
+        discounts = [1 - (self[x] or 0.0) / 100
+                     for x in self._discount_fields()]
+        final_discount = 1
+        for discount in discounts:
+            final_discount *= discount
+        return final_discount
+
+    def _discount_fields(self):
+        return ['discount', 'discount2', 'discount3']
+
+    @api.depends('discount2', 'discount3', 'discounting_type')
     def _compute_amount(self):
         prev_values = self.triple_discount_preprocess()
         super(SaleOrderLine, self)._compute_amount()
@@ -27,6 +59,19 @@ class SaleOrderLine(models.Model):
         'Disc. 3 (%)',
         digits=dp.get_precision('Discount'),
         default=0.0,
+    )
+    discounting_type = fields.Selection(
+        string="Discounting type",
+        selection=[
+            ('additive', 'Additive'),
+            ('multiplicative', 'Multiplicative'),
+        ],
+        default="multiplicative",
+        required=True,
+        help="Specifies whether discounts should be additive "
+        "or multiplicative.\nAdditive discounts are summed first and "
+        "then applied.\nMultiplicative discounts are applied sequentially.\n"
+        "Multiplicative discounts are default",
     )
 
     _sql_constraints = [
