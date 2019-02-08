@@ -121,7 +121,7 @@ class SaleOrderLine(models.Model):
                 discount3=line.discount3,
             )
             line._cache.update({
-                'discount': line._get_triple_discount(),
+                'discount': line._get_final_discount(),
                 'discount2': 0.0,
                 'discount3': 0.0
             })
